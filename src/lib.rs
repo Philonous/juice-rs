@@ -6,8 +6,9 @@
 //! the original library
 //! [tests](https://github.com/paullouisageneau/libjuice/blob/master/test/connectivity.c).
 
-pub use agent::{handler::Handler, Agent, Builder, State};
+pub use agent::{Agent, Builder, State, handler::Handler};
 pub use error::{Error, Result};
+pub use log::set_log_level;
 pub use server::{Builder as ServerBuilder, Credentials as ServerCredentials, Server};
 
 mod agent;

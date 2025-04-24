@@ -15,7 +15,7 @@ categories = ["network-programming"]
 [dependencies]
 log = "0.4"
 lazy_static = "1.4"
-libjuice-sys = { path = "libjuice-sys", version = "0.9" }
+libjuice-sys = { path = "libjuice-sys"}
 
 [dev-dependencies]
 env_logger = "0.9"

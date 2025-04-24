@@ -1,4 +1,4 @@
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Barrier};
 use std::thread::{sleep, spawn};
 use std::time::Duration;

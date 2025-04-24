@@ -17,13 +17,13 @@ use crate::agent::State;
 #[derive(Default)]
 pub struct Handler {
     /// ICE state change handler
-    on_state_change: Option<Box<dyn FnMut(State) + Send + 'static>>,
+    on_state_change: Option<Box<dyn FnMut(State) + Send + Sync + 'static>>,
     /// Local ICE candidate handler
-    on_candidate: Option<Box<dyn FnMut(String) + Send + 'static>>,
+    on_candidate: Option<Box<dyn FnMut(String) + Send + Sync + 'static>>,
     /// Gathering stage finish handler
-    on_gathering_done: Option<Box<dyn FnMut() + Send + 'static>>,
+    on_gathering_done: Option<Box<dyn FnMut() + Send + Sync + 'static>>,
     /// Incoming packet
-    on_recv: Option<Box<dyn FnMut(&[u8]) + Send + 'static>>,
+    on_recv: Option<Box<dyn FnMut(&[u8]) + Send + Sync + 'static>>,
 }
 
 impl Handler {
@@ -41,7 +41,7 @@ impl Handler {
     pub fn candidate_handler<F>(mut self, f: F) -> Self
     where
         F: FnMut(String),
-        F: Send + 'static,
+        F: Send + Sync + 'static,
     {
         self.on_candidate = Some(Box::new(f));
         self
@@ -51,7 +51,7 @@ impl Handler {
     pub fn gathering_done_handler<F>(mut self, f: F) -> Self
     where
         F: FnMut(),
-        F: Send + 'static,
+        F: Send + Sync + 'static,
     {
         self.on_gathering_done = Some(Box::new(f));
         self
@@ -61,7 +61,7 @@ impl Handler {
     pub fn recv_handler<F>(mut self, f: F) -> Self
     where
         F: FnMut(&[u8]),
-        F: Send + 'static,
+        F: Send + Sync + 'static,
     {
         self.on_recv = Some(Box::new(f));
         self

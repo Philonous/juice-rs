@@ -12,9 +12,9 @@ use std::sync::Mutex;
 pub use handler::Handler;
 use libjuice_sys as sys;
 
+use crate::Result;
 use crate::error::Error;
 use crate::log::ensure_logging;
-use crate::Result;
 
 /// Convert c function retcode to result
 fn raw_retcode_to_result(retcode: c_int) -> Result<()> {
@@ -149,6 +149,14 @@ pub struct Agent {
     holder: Box<Holder>,
 }
 
+impl std::fmt::Debug for Agent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Agent")
+            .field("holder", &(&self.holder as *const _))
+            .finish()
+    }
+}
+
 impl Agent {
     /// Create agent builder
     pub fn builder(h: Handler) -> Builder {
@@ -165,19 +173,23 @@ impl Agent {
     }
 
     /// Get local sdp
-    pub fn get_local_description(&self) -> crate::Result<String> {
-        let mut buf = vec![0; sys::JUICE_MAX_SDP_STRING_LEN as _];
-        let res = unsafe {
+    pub fn get_local_description(&self) -> crate::Result<Vec<u8>> {
+        let mut buf = vec![0u8; sys::JUICE_MAX_SDP_STRING_LEN as _];
+        unsafe {
             let res = sys::juice_get_local_description(
                 self.holder.agent,
-                buf.as_mut_ptr(),
+                buf.as_mut_ptr() as _,
                 buf.len() as _,
             );
             let _ = raw_retcode_to_result(res)?;
-            let s = CStr::from_ptr(buf.as_mut_ptr());
-            String::from_utf8_lossy(s.to_bytes())
+            // find the null termination
+        }
+        let len: usize = match buf.iter().position(|&c| c == 0) {
+            None => return Err(Error::Failed),
+            Some(len) => len,
         };
-        Ok(res.to_string())
+        buf.truncate(len);
+        Ok(buf)
     }
 
     /// Start ICE candidates gathering
@@ -187,15 +199,20 @@ impl Agent {
     }
 
     /// Set remote description
-    pub fn set_remote_description(&self, sdp: String) -> crate::Result<()> {
-        let s = CString::new(sdp).map_err(|_| Error::InvalidArgument)?;
+    pub fn set_remote_description(&self, sdp: &[u8]) -> crate::Result<()> {
+        let mut buf: Vec<u8> = Vec::with_capacity(sdp.len() + 1);
+        buf.extend_from_slice(sdp);
+        let s = CString::new(buf).map_err(|_| Error::InvalidArgument)?;
         let ret = unsafe { sys::juice_set_remote_description(self.holder.agent, s.as_ptr()) };
         raw_retcode_to_result(ret)
     }
 
     /// Add remote candidate
-    pub fn add_remote_candidate(&self, sdp: String) -> crate::Result<()> {
-        let s = CString::new(sdp).map_err(|_| Error::InvalidArgument)?;
+    pub fn add_remote_candidate(&self, sdp: &[u8]) -> crate::Result<()> {
+        // Reserve space for the bytes + 0 terminator
+        let mut buf: Vec<u8> = Vec::with_capacity(sdp.len() + 1);
+        buf.extend_from_slice(sdp);
+        let s = CString::new(buf).map_err(|_| Error::InvalidArgument)?;
         let ret = unsafe { sys::juice_add_remote_candidate(self.holder.agent, s.as_ptr()) };
         raw_retcode_to_result(ret)
     }
@@ -384,7 +401,7 @@ unsafe extern "C" fn on_gathering_done(_: *mut sys::juice_agent_t, user_ptr: *mu
 unsafe extern "C" fn on_recv(
     _: *mut sys::juice_agent_t,
     data: *const c_char,
-    len: sys::size_t,
+    len: usize,
     user_ptr: *mut c_void,
 ) {
     let agent: &Holder = &*(user_ptr as *const _);
@@ -407,7 +424,7 @@ mod tests {
 
         assert_eq!(agent.get_state(), State::Disconnected);
         log::debug!(
-            "local description \n\"{}\"",
+            "local description \n\"{:?}\"",
             agent.get_local_description().unwrap()
         );
     }
@@ -433,7 +450,7 @@ mod tests {
 
         assert_eq!(agent.get_state(), State::Disconnected);
         log::debug!(
-            "local description \n\"{}\"",
+            "local description \n\"{:?}\"",
             agent.get_local_description().unwrap()
         );
 
@@ -443,7 +460,7 @@ mod tests {
         let _ = gathering_barrier.wait();
 
         log::debug!(
-            "local description \n\"{}\"",
+            "local description \n\"{:?}\"",
             agent.get_local_description().unwrap()
         );
     }
