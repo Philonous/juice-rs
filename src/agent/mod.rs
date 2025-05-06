@@ -12,9 +12,9 @@ use std::sync::Mutex;
 pub use handler::Handler;
 use libjuice_sys as sys;
 
-use crate::Result;
 use crate::error::Error;
 use crate::log::ensure_logging;
+use crate::Result;
 
 /// Convert c function retcode to result
 fn raw_retcode_to_result(retcode: c_int) -> Result<()> {
@@ -27,8 +27,22 @@ fn raw_retcode_to_result(retcode: c_int) -> Result<()> {
     }
 }
 
+pub struct ConcurrencyMode(sys::juice_concurrency_mode);
+
+impl ConcurrencyMode {
+    pub const Poll: Self = ConcurrencyMode(
+        sys::juice_concurrency_mode_JUICE_CONCURRENCY_MODE_POLL,
+    );
+    pub const Mux: Self =
+        ConcurrencyMode(sys::juice_concurrency_mode_JUICE_CONCURRENCY_MODE_MUX);
+    pub const Thread: Self = ConcurrencyMode(
+        sys::juice_concurrency_mode_JUICE_CONCURRENCY_MODE_THREAD,
+    );
+}
+
 /// Agent builder.
 pub struct Builder {
+    concurrency_mode: ConcurrencyMode,
     stun_server: Option<StunServer>,
     port_range: Option<(u16, u16)>,
     bind_address: Option<CString>,
@@ -40,12 +54,18 @@ impl Builder {
     /// Create new builder with given handler
     fn new(handler: Handler) -> Self {
         Builder {
+            concurrency_mode: ConcurrencyMode::Thread,
             stun_server: None,
             port_range: None,
             bind_address: None,
             turn_servers: vec![],
             handler,
         }
+    }
+
+    pub fn with_concurreny_mode(mut self, mode: ConcurrencyMode) -> Self {
+        self.concurrency_mode = mode;
+        self
     }
 
     /// Set alternative stun server (default is "stun.l.google.com:19302")
@@ -67,7 +87,13 @@ impl Builder {
     }
 
     /// Add TURN server
-    pub fn add_turn_server<T>(mut self, host: T, port: u16, user: T, pass: T) -> Result<Self>
+    pub fn add_turn_server<T>(
+        mut self,
+        host: T,
+        port: u16,
+        user: T,
+        pass: T,
+    ) -> Result<Self>
     where
         T: Into<Vec<u8>>,
     {
@@ -120,6 +146,7 @@ impl Builder {
         };
 
         let config = &sys::juice_config {
+            concurrency_mode: self.concurrency_mode.0,
             stun_server_host: stun_server.0.as_ptr(),
             stun_server_port: stun_server.1,
             turn_servers: turn_servers.0 as _,
@@ -203,7 +230,9 @@ impl Agent {
         let mut buf: Vec<u8> = Vec::with_capacity(sdp.len() + 1);
         buf.extend_from_slice(sdp);
         let s = CString::new(buf).map_err(|_| Error::InvalidArgument)?;
-        let ret = unsafe { sys::juice_set_remote_description(self.holder.agent, s.as_ptr()) };
+        let ret = unsafe {
+            sys::juice_set_remote_description(self.holder.agent, s.as_ptr())
+        };
         raw_retcode_to_result(ret)
     }
 
@@ -213,20 +242,28 @@ impl Agent {
         let mut buf: Vec<u8> = Vec::with_capacity(sdp.len() + 1);
         buf.extend_from_slice(sdp);
         let s = CString::new(buf).map_err(|_| Error::InvalidArgument)?;
-        let ret = unsafe { sys::juice_add_remote_candidate(self.holder.agent, s.as_ptr()) };
+        let ret = unsafe {
+            sys::juice_add_remote_candidate(self.holder.agent, s.as_ptr())
+        };
         raw_retcode_to_result(ret)
     }
 
     /// Signal remote candidates exhausted
     pub fn set_remote_gathering_done(&self) -> crate::Result<()> {
-        let ret = unsafe { sys::juice_set_remote_gathering_done(self.holder.agent) };
+        let ret =
+            unsafe { sys::juice_set_remote_gathering_done(self.holder.agent) };
         raw_retcode_to_result(ret)
     }
 
     /// Send packet to remote endpoint
     pub fn send(&self, data: &[u8]) -> crate::Result<()> {
-        let ret =
-            unsafe { sys::juice_send(self.holder.agent, data.as_ptr() as _, data.len() as _) };
+        let ret = unsafe {
+            sys::juice_send(
+                self.holder.agent,
+                data.as_ptr() as _,
+                data.len() as _,
+            )
+        };
         raw_retcode_to_result(ret)
     }
 
@@ -328,7 +365,9 @@ pub enum State {
 impl TryFrom<sys::juice_state> for State {
     type Error = ();
 
-    fn try_from(value: sys::juice_state) -> std::result::Result<Self, Self::Error> {
+    fn try_from(
+        value: sys::juice_state,
+    ) -> std::result::Result<Self, Self::Error> {
         Ok(match value {
             sys::juice_state_JUICE_STATE_DISCONNECTED => State::Disconnected,
             sys::juice_state_JUICE_STATE_GATHERING => State::Gathering,
@@ -393,7 +432,10 @@ unsafe extern "C" fn on_candidate(
     agent.on_candidate(candidate.to_string())
 }
 
-unsafe extern "C" fn on_gathering_done(_: *mut sys::juice_agent_t, user_ptr: *mut c_void) {
+unsafe extern "C" fn on_gathering_done(
+    _: *mut sys::juice_agent_t,
+    user_ptr: *mut c_void,
+) {
     let agent: &Holder = &*(user_ptr as *const _);
     agent.on_gathering_done()
 }
@@ -444,7 +486,9 @@ mod tests {
                     barrier.wait();
                 }
             })
-            .candidate_handler(|candidate| log::debug!("Local candidate: \"{}\"", candidate));
+            .candidate_handler(|candidate| {
+                log::debug!("Local candidate: \"{}\"", candidate)
+            });
 
         let agent = Agent::builder(handler).build().unwrap();
 
